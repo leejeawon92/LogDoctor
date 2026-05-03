@@ -1,3 +1,4 @@
+from analyzer import analyze_log_with_gemini # analyzer.py의 기능을 가져옵니다.
 from fastapi import FastAPI
 import os
 from dotenv import load_dotenv
