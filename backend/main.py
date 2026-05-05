@@ -25,6 +25,8 @@ app.add_middleware(
     allow_headers=["*"],       # 모든 HTTP 헤더 요청을 허용
 )
 
+LOG_FILE_PATH = os.getenv("LOG_FILE_PATH", r"C:\LogDoctor\logs\server.log")
+
 @app.get("/")
 def read_root():
     # 서버 구동 여부와 API 키 설정 상태를 빠르게 확인하기 위한 기본 경로
@@ -46,13 +48,28 @@ async def get_status():
 
 @app.get("/api/logs")
 async def get_logs():
-    # 대시보드 터미널 UI에 표시될 가짜(Mock) 로그 데이터를 전송
-    # 리스트 형태의 로그 객체들을 반환
-    return [
-        {"timestamp": "2026-05-04 23:45:01", "level": "INFO", "message": "LogDoctor Backend Synced."},
-        {"timestamp": "2026-05-04 23:45:12", "level": "ERROR", "message": "Critical: Node-C unreachable."},
-        {"timestamp": "2026-05-04 23:45:20", "level": "INFO", "message": "AI Analysis module standby."},
-    ]
+    # [Why] 기존 하드코딩된 리스트[cite: 1] 대신 실제 파일을 읽어 처리합니다.
+    # [What] server.log 파일의 마지막 10줄을 읽어 대시보드 형식에 맞춰 반환합니다.
+    if not os.path.exists(LOG_FILE_PATH):
+        return []
+
+    logs = []
+    try:
+        with open(LOG_FILE_PATH, "r", encoding="utf-8") as f:
+            lines = f.readlines()[-10:] # 마지막 10줄 추출
+            for line in lines:
+                if ":" in line:
+                    # 로그 형식 가정: [2026-05-05] LEVEL: Message
+                    parts = line.split(" ", 2)
+                    logs.append({
+                        "timestamp": parts[0].strip("[]"),
+                        "level": parts[1].replace(":", ""),
+                        "message": parts[2].strip()
+                    })
+    except Exception as e:
+        print(f"Error reading log: {e}")
+        
+    return logs
 
 @app.post("/analyze")
 def analyze_log(log_data: dict):
