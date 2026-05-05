@@ -7,14 +7,13 @@ import { Activity, ShieldAlert, Terminal, Database } from 'lucide-react';
 function App() {
   const [logs, setLogs] = useState([]);
   // Gemini AI의 분석 결과 메시지를 저장하여 화면에 표시하기 위한 상태.
-  const [analysis, setAnalysis] = useState("Analyzing latest logs...");
+  const [analysis, setAnalysis] = useState("로그를 확인한 후 'AI 진단 실행' 버튼을 눌러주세요.");
   
   // 이전 로그 문자열을 저장해두고, 내용이 변했을 때만 API를 호출하여 429 에러를 방지.
   // 초기값은 빈 문자열로 설정된 Ref 객체를 생성.
   const prevLogContentRef = useRef(""); 
 
-  useEffect(() => {
-    // 백엔드 서버에서 실시간 로그 데이터를 가져오기 위한 함수.
+  useEffect(() => { // 백엔드 서버에서 실시간 로그 데이터를 가져오기 위한 함수.
     const fetchLogs = async () => {
       try {
         // FastAPI의 로그 엔드포인트(8000번 포트)로 요청을 보낸다.
@@ -36,46 +35,36 @@ function App() {
     };
   }, []);
 
-  // logs 상태가 변경될 때마다 AI 분석이 필요한 상황인지 판단.
-  useEffect(() => {
-    const requestAnalysis = async () => {
-      if (logs.length > 0) {
-        // 현재 배열 형태의 로그를 줄바꿈 문자로 합쳐 문자열로 만든다.
-        const currentLogContent = logs.map(l => `[${l.level}] ${l.message}`).join('\n');
-        
-        // 불필요한 API 호출을 막기 위해 이전 분석 내용과 다를 때만 실행.
-        if (currentLogContent !== prevLogContentRef.current) {
-            try {
-                setAnalysis("Requesting new analysis..."); 
-                // 백엔드의 분석 엔드포인트에 로그 데이터를 담아 POST 요청을 보낸다.
-                const aiResponse = await fetch('http://localhost:8000/analyze', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ content: currentLogContent })
-                });
-                const aiData = await aiResponse.json();
-                
-                // 할당량 초과(429) 발생 시 사용자에게 친절한 안내 문구를 출력.
-                if (aiData.analysis && aiData.analysis.includes("429 RESOURCE_EXHAUSTED")) {
-                    setAnalysis("API 사용량을 초과했습니다. 잠시 후 다시 시도해주세요.");
-                } else {
-                    setAnalysis(aiData.analysis);
-                }
-                
-                // 이번에 분석한 내용을 Ref에 저장하여 다음 비교에 사용.
-                prevLogContentRef.current = currentLogContent;
 
-            } catch(error){
-                console.error("AI Analysis failed:", error);
-                setAnalysis("분석 요청 중 오류가 발생했습니다.");
-            }
-        }
+  const handleAnalyze = async () => {
+    if (logs.length === 0) {
+      setAnalysis("분석할 로그가 없습니다.");
+      return;
+    }
+
+    // 현재 터미널에 표시된 로그들을 분석용 텍스트로 결합
+    const logContent = logs.map(l => `[${l.level}] ${l.message}`).join('\n');
+    setAnalysis("Gemini AI가 로그를 분석 중입니다...");
+
+    try {
+      const response = await fetch('http://localhost:8000/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: logContent })
+      });
+      const data = await response.json();
+
+      // 할당량 초과 에러(429)가 응답에 포함되어 있다면 사용자에게 알린다.
+      if (data.analysis && data.analysis.includes("RESOURCE_EXHAUSTED")) {
+        setAnalysis("오늘의 AI 진단 할당량(20회)을 모두 사용했습니다. 내일 다시 시도해주세요.");
+      } else {
+        setAnalysis(data.analysis);
       }
-    };
-
-    requestAnalysis();
-
-  }, [logs]); // logs 데이터가 변경될 때마다 이 효과가 트리거가 된다.
+    } catch (error) {
+      console.error("Analysis failed:", error);
+      setAnalysis("백엔드 연결 실패 또는 분석 중 오류가 발생했습니다.");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 p-6 font-sans">
@@ -108,9 +97,18 @@ function App() {
             </p>
           </div>
           
+          {/* AI Analysis 카드 섹션 */}
           <div className="bg-slate-900 p-5 rounded-xl border border-slate-800">
-            <h2 className="text-slate-400 text-sm font-semibold uppercase mb-4">AI Analysis</h2>
-            {/* Gemini가 분석한 결과를 줄바꿈이 유지되도록 화면에 출력. */}
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-slate-400 text-sm font-semibold uppercase">AI Analysis</h2>
+              {/* [What] 인프라 엔지니어가 직접 제어할 수 있는 진단 버튼을 추가합니다. */}
+              <button 
+                onClick={handleAnalyze}
+                className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-1 px-3 rounded transition-all shadow-lg active:scale-95"
+              >
+                AI 진단 실행
+              </button>
+            </div>
             <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">
               {analysis}
             </p>
