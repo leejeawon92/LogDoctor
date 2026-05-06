@@ -1,65 +1,96 @@
-from fastapi import FastAPI
+import asyncio
 import os
+from fastapi import FastAPI
 from dotenv import load_dotenv
-# 브라우저 보안 정책(CORS)을 허용하여 프론트엔드와 통신하기 위해 필수적인 모듈
 from fastapi.middleware.cors import CORSMiddleware
+from analyzer import analyze_log_with_gemini
 
-# .env 파일에 저장된 GEMINI_API_KEY 등의 환경 변수를 읽어오기 위함
+# 1. 환경 변수 로드
 load_dotenv()
-
-# 로그 분석의 핵심 로직인 AI 모델 호출 함수를 가져온다
-from analyzer import analyze_log_with_gemini 
 
 app = FastAPI()
 
-# React(5173 포트)에서 FastAPI(8000 포트)로의 API 요청을 허용하기 위한 설정
+# 2. 전역 상태 저장소 (AI 분석 결과 유지)
+latest_diagnosis = {"analysis": "장애 대기 중... 새로운 ERROR 로그를 기다리고 있습니다."}
+
+# 3. CORS 설정
 origins = [
     "http://localhost:5173", 
+    "http://localhost:3000", 
+    "http://127.0.0.1:5173",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,     # 허용된 도메인 리스트를 설정
-    allow_credentials=True,    # 쿠키 등 인증 정보 포함을 허용
-    allow_methods=["*"],       # GET, POST 등 모든 전송 방식을 허용
-    allow_headers=["*"],       # 모든 HTTP 헤더 요청을 허용
+    allow_origins=origins,     
+    allow_credentials=True,    
+    allow_methods=["*"],       
+    allow_headers=["*"],       
 )
 
-LOG_FILE_PATH = os.getenv("LOG_FILE_PATH", r"C:\LogDoctor\logs\server.log")
+# 4. 로그 파일 경로 설정 (컨테이너 내부 절대 경로)
+LOG_FILE_PATH = "/app/logs/server.log"
 
+# 5. 실시간 로그 감시 로직
+async def log_watcher():
+    global latest_diagnosis
+    last_detected_error = ""
+
+    while True:
+        await asyncio.sleep(1) # 1초마다 체크
+        if not os.path.exists(LOG_FILE_PATH):
+            continue
+
+        try:
+            with open(LOG_FILE_PATH, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+                if not lines:
+                    continue
+                
+                # 역순으로 검사하여 가장 최근의 ERROR 줄 확보
+                current_error_line = ""
+                for line in reversed(lines):
+                    if "ERROR" in line:
+                        current_error_line = line.strip()
+                        break
+                
+                # 새로운 에러가 발견되었을 때만 AI 분석 실행
+                if current_error_line and current_error_line != last_detected_error:
+                    print(f"🚨 실시간 장애 감지 성공: {current_error_line}")
+                    last_detected_error = current_error_line
+                    
+                    # AI 분석 실행 및 결과 저장
+                    result = analyze_log_with_gemini(current_error_line)
+                    latest_diagnosis = {"analysis": result}
+                    
+        except Exception as e:
+            print(f"Watcher Error: {e}")
+
+# 6. 서버 시작 시 감시 엔진 자동 실행
+@app.on_event("startup")
+async def startup_event():
+    print("🚀 LogDoctor 감시 엔진 시작 중...")
+    asyncio.create_task(log_watcher())
+
+# 7. API 엔드포인트
 @app.get("/")
 def read_root():
-    # 서버 구동 여부와 API 키 설정 상태를 빠르게 확인하기 위한 기본 경로
     api_key = os.getenv("GEMINI_API_KEY")
-    if api_key:
-        return {"status": "success", "api_key_found": api_key[:4] + "****"}
-    return {"status": "fail", "message": "API Key not found in .env"}
+    return {"status": "Online", "api_key_configured": bool(api_key)}
 
-# --- [신규 추가] 시스템 상태 확인 엔드포인트 ---
 @app.get("/api/status")
 async def get_status():
-    # 대시보드 우측 상단의 'System: Offline'을 'Online'으로 바꾸기 위함
-    # 현재 서버가 살아있음을 알리는 시스템 상태와 발견된 이슈 개수를 반환
-    return {
-        "status": "Online",
-        "critical_issues": 1,  # 테스트를 위해 1개로 설정
-        "uptime": "running"
-    }
+    return {"status": "Online", "critical_issues": 1, "uptime": "running"}
 
 @app.get("/api/logs")
 async def get_logs():
-    # [Why] 기존 하드코딩된 리스트[cite: 1] 대신 실제 파일을 읽어 처리합니다.
-    # [What] server.log 파일의 마지막 10줄을 읽어 대시보드 형식에 맞춰 반환합니다.
-    if not os.path.exists(LOG_FILE_PATH):
-        return []
-
+    if not os.path.exists(LOG_FILE_PATH): return []
     logs = []
     try:
         with open(LOG_FILE_PATH, "r", encoding="utf-8") as f:
-            lines = f.readlines()[-10:] # 마지막 10줄 추출
+            lines = f.readlines()[-100:]
             for line in lines:
                 if ":" in line:
-                    # 로그 형식 가정: [2026-05-05] LEVEL: Message
                     parts = line.split(" ", 2)
                     logs.append({
                         "timestamp": parts[0].strip("[]"),
@@ -68,17 +99,14 @@ async def get_logs():
                     })
     except Exception as e:
         print(f"Error reading log: {e}")
-        
     return logs
+
+@app.get("/api/diagnosis")
+async def get_diagnosis():
+    return latest_diagnosis
 
 @app.post("/analyze")
 def analyze_log(log_data: dict):
-    # 프론트엔드에서 보낸 로그를 Gemini AI에게 전달하여 분석 결과를 받는다
     log_content = log_data.get("content", "")
-    
-    if not log_content:
-        return {"error": "로그 내용이 비어 있습니다."}
-    
-    # analyzer.py의 분석 함수를 호출하고 결과를 리턴
-    result = analyze_log_with_gemini(log_content)
-    return {"analysis": result}
+    if not log_content: return {"error": "내용 없음"}
+    return {"analysis": analyze_log_with_gemini(log_content)}

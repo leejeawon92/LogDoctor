@@ -98,20 +98,29 @@ function App() {
           </div>
           
           {/* AI Analysis 카드 섹션 */}
-          <div className="bg-slate-900 p-5 rounded-xl border border-slate-800">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-slate-400 text-sm font-semibold uppercase">AI Analysis</h2>
-              {/* [What] 인프라 엔지니어가 직접 제어할 수 있는 진단 버튼을 추가합니다. */}
+          <div className="bg-slate-900/50 p-6 rounded-xl border border-blue-500/30 shadow-lg">
+            <div className="flex justify-between items-center mb-5">
+              <div className="flex items-center gap-2">
+                <Database className="w-4 h-4 text-blue-400" />
+                <h2 className="text-blue-400 text-xs font-bold uppercase tracking-widest">AI Expert Diagnosis</h2>
+              </div>
+              {/* 수동 진단 트리거 버튼 */}
               <button 
                 onClick={handleAnalyze}
-                className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-1 px-3 rounded transition-all shadow-lg active:scale-95"
+                className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-1.5 px-4 rounded-md transition-all active:scale-95"
               >
                 AI 진단 실행
               </button>
             </div>
-            <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">
-              {analysis}
-            </p>
+            
+            {/* 시인성을 높인 분석 결과 출력창 */}
+            <div className="text-sm text-slate-200 leading-relaxed font-mono bg-slate-950/80 p-5 rounded-lg border border-slate-800 max-h-[350px] overflow-y-auto whitespace-pre-wrap shadow-inner">
+              {analysis
+                  .replace(/\*\*/g, '') // 굵게 기호(**) 제거
+                  .replace(/###/g, '■')  // 소제목(###)을 불릿 기호로 변경
+                  .replace(/#/g, '')     // 기타 # 제거
+                  .trim()}
+            </div>
           </div>
         </div>
 

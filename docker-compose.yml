@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # LogDoctor의 백엔드 서비스 정의
+  # FastAPI 서버를 컨테이너 단위로 관리하기 위함
+  backend:
+    # C:\LogDoctor\backend 폴더에 있는 Dockerfile을 사용하여 빌드
+    # 작성된 빌드 규칙에 따라 Python 환경을 생성하기 위함
+    build: ./backend
+    
+    # 호스트의 8000포트를 컨테이너의 8000포트로 연결
+    # 로컬 브라우저나 프론트엔드에서 API에 접근하기 위함
+    ports:
+      - "8000:8000"
+    
+    # 환경 변수 주입[cite: 3]
+    # 보안을 위해 소스 코드에 노출하지 않은 API 키를 런타임에 전달함
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - LOG_FILE_PATH=/app/logs/server.log
+    
+    # 경로 연결
+    # C:\LogDoctor\logs의 실제 로그를 컨테이너의 /app/logs에서 실시간 참조함
+    volumes:
+      - ./logs:/app/logs
+      
+    # 컨테이너 재시작 정책
+    # 서버 에러나 재부팅 시 자동으로 백엔드를 복구하기 위함
+    restart: always
+
+  # LogDoctor의 프런트엔드 서비스 정의 (Vite v8 + Tailwind v4)
+  # 대시보드 UI를 컨테이너 환경에서 독립적으로 구동하기 위함
+  frontend:
+    # C:\LogDoctor\frontend 폴더에 있는 Dockerfile을 사용하여 빌드
+    # Node.js 20-alpine 기반의 최신 프런트엔드 빌드 환경 구축
+    build: ./frontend
+    
+    # 호스트의 5173포트를 컨테이너의 5173포트로 연결
+    # 브라우저에서 http://localhost:5173으로 대시보드에 접속하기 위함
+    ports:
+      - "5173:5173"
+    
+    # 프런트엔드 소스 코드 및 노드 모듈 볼륨 설정
+    # 호스트의 코드 수정을 컨테이너에 실시간 반영(HMR)하고, OS 간 노드 모듈 충돌을 방지
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    
+    # 서비스 의존성 명시
+    # 백엔드 API 서버가 가동된 후 프런트엔드가 시작되도록 순서를 제어
+    depends_on:
+      - backend
+    
+    # 대화형 터미널 활성화
+    # Vite 개발 서버의 로그 확인 및 내부 프로세스 제어를 위함
+    stdin_open: true
+    tty: true
