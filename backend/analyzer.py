@@ -29,7 +29,7 @@ def analyze_log_with_gemini(log_text):
         )
         return response.text
     except Exception as e:
-        # 에러 발생 시 사용자에게 노출되는 메시지를 정돈
-        if "429" in str(e):
-            return "오늘의 AI 진단 할당량을 모두 소진했습니다. 내일 다시 시도해주세요."
-        return f"분석 중 오류 발생: {str(e)}"
+            error_msg = str(e)
+            if "503" in error_msg:
+                return "현재 구글 AI 서버 부하가 높습니다. 잠시 후 'AI 진단 실행' 버튼을 다시 눌러주세요."
+            return f"분석 중 오류 발생: {error_msg}"

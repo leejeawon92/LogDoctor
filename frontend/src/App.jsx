@@ -1,152 +1,117 @@
-// useState, useEffect 외에 렌더링 사이에 값을 유지할 useRef가 추가로 필요.
-// react 패키지에서 useRef를 명시적으로 불러온다.
-import React, { useState, useEffect, useRef } from 'react';
-// UI 구성에 필요한 아이콘 라이브러리를 불러온다.
-import { Activity, ShieldAlert, Terminal, Database } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+const API_BASE_URL = "http://localhost:8000";
 
 function App() {
   const [logs, setLogs] = useState([]);
-  // Gemini AI의 분석 결과 메시지를 저장하여 화면에 표시하기 위한 상태.
-  const [analysis, setAnalysis] = useState("로그를 확인한 후 'AI 진단 실행' 버튼을 눌러주세요.");
-  
-  // 이전 로그 문자열을 저장해두고, 내용이 변했을 때만 API를 호출하여 429 에러를 방지.
-  // 초기값은 빈 문자열로 설정된 Ref 객체를 생성.
-  const prevLogContentRef = useRef(""); 
+  const [diagnosis, setDiagnosis] = useState("로그를 확인한 후 'AI 진단 실행' 버튼을 눌러주세요.");
+  const [status, setStatus] = useState({ status: "Offline", critical_issues: 0 });
 
-  useEffect(() => { // 백엔드 서버에서 실시간 로그 데이터를 가져오기 위한 함수.
-    const fetchLogs = async () => {
+  // 1. 실시간 데이터 동기화
+  useEffect(() => {
+    const fetchData = async () => {
       try {
-        // FastAPI의 로그 엔드포인트(8000번 포트)로 요청을 보낸다.
-        const response = await fetch('http://localhost:8000/api/logs');
-        const data = await response.json();
-        setLogs(data);
+        const [logRes, statusRes, diagRes] = await Promise.all([
+          axios.get(`${API_BASE_URL}/api/logs`),
+          axios.get(`${API_BASE_URL}/api/status`),
+          axios.get(`${API_BASE_URL}/api/diagnosis`)
+        ]);
+        setLogs(logRes.data);
+        setStatus(statusRes.data);
+        
+        // 자동 감시 엔진의 결과가 있으면 화면에 표시
+        if (diagRes.data.analysis && !diagRes.data.analysis.includes("대기 중")) {
+          setDiagnosis(diagRes.data.analysis);
+        }
       } catch (error) {
-        console.error("Backend connection failed:", error);
+        console.error("Data fetching error:", error);
       }
     };
-
-    // 대시보드 활성화를 위해 앱 시작 시 즉시 실행하고 3초마다 반복.
-    fetchLogs();
-    const logInterval = setInterval(fetchLogs, 3000);
-
-    return () => {
-        // 컴포넌트가 사라질 때 타이머를 제거하여 메모리 누수를 방지.
-        clearInterval(logInterval);
-    };
+    const interval = setInterval(fetchData, 1000);
+    return () => clearInterval(interval);
   }, []);
 
-
-  const handleAnalyze = async () => {
-    if (logs.length === 0) {
-      setAnalysis("분석할 로그가 없습니다.");
+  // 2. [추가] 버튼 클릭 시 실행될 수동 분석 함수
+  const handleManualAnalysis = async () => {
+    // 터미널 로그 중 가장 최근의 ERROR를 찾음
+    const lastError = [...logs].reverse().find(l => l.level === 'ERROR');
+    
+    if (!lastError) {
+      setDiagnosis("분석할 ERROR 로그가 터미널에 없습니다.");
       return;
     }
 
-    // 현재 터미널에 표시된 로그들을 분석용 텍스트로 결합
-    const logContent = logs.map(l => `[${l.level}] ${l.message}`).join('\n');
-    setAnalysis("Gemini AI가 로그를 분석 중입니다...");
+    setDiagnosis("AI가 분석 중입니다... 잠시만 기다려주세요.");
 
     try {
-      const response = await fetch('http://localhost:8000/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: logContent })
+      // 백엔드 /analyze 엔드포인트 호출
+      const response = await axios.post(`${API_BASE_URL}/analyze`, {
+        content: `${lastError.timestamp} ${lastError.level}: ${lastError.message}`
       });
-      const data = await response.json();
-
-      // 할당량 초과 에러(429)가 응답에 포함되어 있다면 사용자에게 알린다.
-      if (data.analysis && data.analysis.includes("RESOURCE_EXHAUSTED")) {
-        setAnalysis("오늘의 AI 진단 할당량(20회)을 모두 사용했습니다. 내일 다시 시도해주세요.");
-      } else {
-        setAnalysis(data.analysis);
-      }
+      setDiagnosis(response.data.analysis);
     } catch (error) {
-      console.error("Analysis failed:", error);
-      setAnalysis("백엔드 연결 실패 또는 분석 중 오류가 발생했습니다.");
+      console.error("Manual analysis error:", error);
+      setDiagnosis("분석 요청 중 오류가 발생했습니다.");
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 p-6 font-sans">
-      <header className="flex items-center justify-between mb-8 border-b border-slate-800 pb-4">
-        <div className="flex items-center gap-3">
-          <Activity className="text-blue-500 w-8 h-8" />
-          <h1 className="text-2xl font-extrabold tracking-tight">LogDoctor</h1>
+    <div style={{ backgroundColor: '#020617', color: '#f8fafc', minHeight: '100vh', padding: '20px', fontFamily: 'Inter, sans-serif' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ color: '#38bdf8', fontSize: '24px', fontWeight: 'bold' }}>📈 LogDoctor</div>
         </div>
-        <div className="flex gap-4">
-          <div className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
-            {/* 시스템 연결 상태에 따라 표시등 색상을 변경. */}
-            <div className={`w-2 h-2 rounded-full ${logs.length > 0 ? 'bg-emerald-500' : 'bg-red-500'} animate-pulse`}></div>
-            <span className="text-sm font-medium">
-              {logs.length > 0 ? 'System: Online' : 'System: Offline'}
-            </span>
-          </div>
+        <div style={{ backgroundColor: '#1e293b', padding: '5px 15px', borderRadius: '20px', fontSize: '14px', border: '1px solid #334155' }}>
+          <span style={{ color: status.status === "Online" ? "#4ad991" : "#ff4d4d", marginRight: '5px' }}>●</span>
+          System: {status.status}
         </div>
       </header>
 
-      <main className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="space-y-6">
-          <div className="bg-slate-900 p-5 rounded-xl border border-slate-800">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-slate-400 text-sm font-semibold uppercase">Critical Issues</h2>
-              <ShieldAlert className="text-red-500 w-5 h-5" />
+      <div style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: '25px' }}>
+        <aside style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div style={{ backgroundColor: '#0f172a', padding: '20px', borderRadius: '12px', border: '1px solid #1e293b' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
+              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 'bold' }}>CRITICAL ISSUES</span>
+              <span style={{ color: '#ef4444' }}>🚫</span>
             </div>
-            {/* 에러 등급의 로그 개수만 필터링하여 실시간 숫자로 표시. */}
-            <p className="text-4xl font-bold">
-              {logs.filter(log => log.level === 'ERROR' || log.level === 'CRITICAL').length}
-            </p>
+            <div style={{ fontSize: '48px', fontWeight: 'bold' }}>{status.critical_issues}</div>
           </div>
-          
-          {/* AI Analysis 카드 섹션 */}
-          <div className="bg-slate-900/50 p-6 rounded-xl border border-blue-500/30 shadow-lg">
-            <div className="flex justify-between items-center mb-5">
-              <div className="flex items-center gap-2">
-                <Database className="w-4 h-4 text-blue-400" />
-                <h2 className="text-blue-400 text-xs font-bold uppercase tracking-widest">AI Expert Diagnosis</h2>
-              </div>
-              {/* 수동 진단 트리거 버튼 */}
+
+          <div style={{ backgroundColor: '#0f172a', padding: '20px', borderRadius: '12px', border: '1px solid #1e293b' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 'bold' }}>AI ANALYSIS</span>
+              {/* 버튼에 handleManualAnalysis 함수 연결 */}
               <button 
-                onClick={handleAnalyze}
-                className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-1.5 px-4 rounded-md transition-all active:scale-95"
+                onClick={handleManualAnalysis}
+                style={{ backgroundColor: '#2563eb', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}
               >
                 AI 진단 실행
               </button>
             </div>
-            
-            {/* 시인성을 높인 분석 결과 출력창 */}
-            <div className="text-sm text-slate-200 leading-relaxed font-mono bg-slate-950/80 p-5 rounded-lg border border-slate-800 max-h-[350px] overflow-y-auto whitespace-pre-wrap shadow-inner">
-              {analysis
-                  .replace(/\*\*/g, '') // 굵게 기호(**) 제거
-                  .replace(/###/g, '■')  // 소제목(###)을 불릿 기호로 변경
-                  .replace(/#/g, '')     // 기타 # 제거
-                  .trim()}
-            </div>
+              <div style={{ fontSize: '14px', color: '#cbd5e1', lineHeight: '1.6', height: '200px', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
+                {diagnosis}
+              </div>
           </div>
-        </div>
+        </aside>
 
-        <div className="lg:col-span-3 bg-black rounded-xl border border-slate-800 shadow-2xl flex flex-col">
-          <div className="p-4 bg-slate-900 border-b border-slate-800 flex items-center gap-2">
-            <Terminal className="w-4 h-4 text-blue-400" />
-            <span className="text-sm font-bold font-mono">Live_Log_Terminal</span>
+        <section style={{ backgroundColor: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b', overflow: 'hidden' }}>
+          <div style={{ backgroundColor: '#1e293b', padding: '10px 20px', fontSize: '14px', color: '#94a3b8', borderBottom: '1px solid #334155' }}>
+            {">_"} Live_Log_Terminal
           </div>
-          
-          <div className="p-5 font-mono text-xs leading-relaxed overflow-y-auto min-h-[400px]">
-            {/* 로그 리스트를 순회하며 타임스탬프와 메시지를 출력 */}
-            {logs.length > 0 ? logs.map((log, index) => (
-              <p key={index} className="mb-1">
-                <span className="text-slate-600">[{log.timestamp}]</span>{' '}
-                <span className={log.level === 'ERROR' ? 'text-red-500' : 'text-emerald-400'}>
+          <div style={{ padding: '20px', height: '500px', overflowY: 'auto', backgroundColor: '#000', fontFamily: 'monospace', fontSize: '14px' }}>
+            {logs.map((log, index) => (
+              <div key={index} style={{ marginBottom: '8px' }}>
+                <span style={{ color: '#475569' }}>[{log.timestamp}]</span>
+                <span style={{ color: log.level === 'ERROR' ? '#ef4444' : '#22c55e', margin: '0 10px', fontWeight: 'bold' }}>
                   {log.level}:
-                </span>{' '}
-                {log.message}
-              </p>
-            )) : (
-              <p className="text-slate-500 italic">No logs received from server...</p>
-            )}
-            <p className="animate-pulse">_</p>
+                </span>
+                <span style={{ color: '#e2e8f0' }}>{log.message}</span>
+              </div>
+            ))}
           </div>
-        </div>
-      </main>
+        </section>
+      </div>
     </div>
   );
 }

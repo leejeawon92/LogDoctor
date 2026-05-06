@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from analyzer import analyze_log_with_gemini
+from pydantic import BaseModel
 
 # 1. 환경 변수 로드
 load_dotenv()
@@ -37,7 +38,7 @@ async def log_watcher():
     last_detected_error = ""
 
     while True:
-        await asyncio.sleep(1) # 1초마다 체크
+        await asyncio.sleep(30) # 1초마다 체크
         if not os.path.exists(LOG_FILE_PATH):
             continue
 
@@ -110,3 +111,20 @@ def analyze_log(log_data: dict):
     log_content = log_data.get("content", "")
     if not log_content: return {"error": "내용 없음"}
     return {"analysis": analyze_log_with_gemini(log_content)}
+
+# 7-1. 데이터 규격 정의 (인프라 표준화)
+class AnalysisRequest(BaseModel):
+    content: str
+
+# 7-2. API 엔드포인트 수정
+@app.post("/analyze")
+async def analyze_log(request: AnalysisRequest):
+    # 이제 request.content로 안전하게 접근 가능합니다.
+    if not request.content: 
+        return {"analysis": "분석할 내용이 없습니다."}
+    
+    try:
+        report = analyze_log_with_gemini(request.content)
+        return {"analysis": report}
+    except Exception as e:
+        return {"analysis": f"백엔드 처리 중 오류 발생: {str(e)}"}
