@@ -7,6 +7,5 @@
 [2026-05-06] ERROR: Ultimate test for watcher.
 [2026-05-06] ERROR: Critical System Overload.
 [2026-05-06] ERROR: Critical logic check success.
-[2026-05-06] ERROR: Test중입니다!!!!!.
-[2026-05-06] ERROR: 에러발생!!!.
+[2026-05-07] ERROR: sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) connection to server at "10.0.50.11", port 5432 failed: Connection refused
 
