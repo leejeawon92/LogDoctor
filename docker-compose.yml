@@ -23,6 +23,9 @@ services:
     # C:\LogDoctor\logs의 실제 로그를 컨테이너의 /app/logs에서 실시간 참조함
     volumes:
       - ./logs:/app/logs
+      # 백엔드 소스 및 DB 파일이 위치한 폴더 전체를 동기화
+      # 컨테이너 내부에서 생성되는 log_doctor.db 파일을 윈도우에서도 실시간으로 확인하기 위함
+      - ./backend:/app
       
     # 컨테이너 재시작 정책
     # 서버 에러나 재부팅 시 자동으로 백엔드를 복구하기 위함
